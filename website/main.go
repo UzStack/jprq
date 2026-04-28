@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/azimjohn/jprq/server/github"
@@ -50,19 +51,27 @@ func contentHandler(content []byte, contentType string) func(w http.ResponseWrit
 }
 
 func authHandler(w http.ResponseWriter, r *http.Request) {
-	// Pass the app parameter to the OAuth state if present
 	app := r.URL.Query().Get("app")
+	callback := r.URL.Query().Get("callback")
 	oauthURL := oauth.OAuthUrl()
 
-	// If app parameter is present, add it to the state
 	if app != "" {
-		// Store app parameter in session or pass it through state
-		// For now, we'll use a cookie to preserve it
 		http.SetCookie(w, &http.Cookie{
 			Name:     "jprq_app",
 			Value:    app,
 			Path:     "/",
-			MaxAge:   300, // 5 minutes
+			MaxAge:   300,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
+
+	if callback != "" {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "jprq_callback",
+			Value:    callback,
+			Path:     "/",
+			MaxAge:   300,
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
 		})
@@ -83,39 +92,70 @@ func oauthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Auto-add user to allowed list (non-blocking)
+	go autoAllowUser(token)
+
 	// Check if this is an app-based authentication
 	appCookie, err := r.Cookie("jprq_app")
+	callbackCookie, _ := r.Cookie("jprq_callback")
+
 	if err == nil && appCookie.Value != "" {
-		// Clear the cookie
+		// Clear cookies
 		http.SetCookie(w, &http.Cookie{
-			Name:     "jprq_app",
-			Value:    "",
-			Path:     "/",
-			MaxAge:   -1,
-			HttpOnly: true,
+			Name: "jprq_app", Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
+		})
+		http.SetCookie(w, &http.Cookie{
+			Name: "jprq_callback", Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
 		})
 
-		// Redirect to the app URL with the token
-		var appURL string
-		switch appCookie.Value {
-		case "mac":
-			appURL = fmt.Sprintf("jprq://auth/callback?token=%s", token)
-		case "windows":
-			appURL = fmt.Sprintf("jprq://auth/callback?token=%s", token)
-		case "linux":
-			appURL = fmt.Sprintf("jprq://auth/callback?token=%s", token)
-		default:
-			// Unknown app type, fall back to web display
-			w.Header().Set("Content-Type", "text/html")
-			w.Write([]byte(fmt.Sprintf(tokenHtml, token)))
-			return
+		// If callback URL provided, redirect there instead of deep link.
+		// Parse the URL so we preserve any pre-existing query params (e.g. state)
+		// and append `token` correctly using `&` instead of a second `?`.
+		if callbackCookie != nil && callbackCookie.Value != "" {
+			parsed, perr := url.Parse(callbackCookie.Value)
+			if perr == nil && parsed.Scheme != "" && parsed.Host != "" {
+				q := parsed.Query()
+				q.Set("token", token)
+				parsed.RawQuery = q.Encode()
+				http.Redirect(w, r, parsed.String(), http.StatusFound)
+				return
+			}
+			fmt.Printf("invalid callback URL %q: %v\n", callbackCookie.Value, perr)
 		}
 
-		http.Redirect(w, r, appURL, http.StatusFound)
+		// Fall back to deep link
+		switch appCookie.Value {
+		case "mac", "windows", "linux":
+			appURL := fmt.Sprintf("jprq://auth/callback?token=%s", token)
+			http.Redirect(w, r, appURL, http.StatusFound)
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(fmt.Sprintf(tokenHtml, token)))
+		}
 		return
 	}
 
 	// Default: show token in web page
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(fmt.Sprintf(tokenHtml, token)))
+}
+
+const allowedUsersFile = "/etc/jprq/allowed-users.csv"
+
+func autoAllowUser(token string) {
+	user, err := oauth.Authenticate(token)
+	if err != nil {
+		fmt.Printf("auto-allow: failed to authenticate user: %s\n", err)
+		return
+	}
+
+	file, err := os.OpenFile(allowedUsersFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Printf("auto-allow: failed to open file: %s\n", err)
+		return
+	}
+	defer file.Close()
+
+	fmt.Fprintf(file, "%s,desktop\n", user.Login)
+	fmt.Printf("auto-allowed user: %s\n", user.Login)
 }
