@@ -59,7 +59,7 @@ func (j *Jprq) Start() {
 
 	go func() { // periodically load allowed users
 		j.loadAllowedUsers()
-		for range time.Tick(time.Minute) {
+		for range time.Tick(5 * time.Second) {
 			j.loadAllowedUsers()
 		}
 	}()
