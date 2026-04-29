@@ -92,9 +92,6 @@ func oauthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-add user to allowed list (non-blocking)
-	go autoAllowUser(token)
-
 	// Check if this is an app-based authentication
 	appCookie, err := r.Cookie("jprq_app")
 	callbackCookie, _ := r.Cookie("jprq_callback")
@@ -138,24 +135,4 @@ func oauthCallback(w http.ResponseWriter, r *http.Request) {
 	// Default: show token in web page
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(fmt.Sprintf(tokenHtml, token)))
-}
-
-const allowedUsersFile = "/etc/jprq/allowed-users.csv"
-
-func autoAllowUser(token string) {
-	user, err := oauth.Authenticate(token)
-	if err != nil {
-		fmt.Printf("auto-allow: failed to authenticate user: %s\n", err)
-		return
-	}
-
-	file, err := os.OpenFile(allowedUsersFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Printf("auto-allow: failed to open file: %s\n", err)
-		return
-	}
-	defer file.Close()
-
-	fmt.Fprintf(file, "%s,desktop\n", user.Login)
-	fmt.Printf("auto-allowed user: %s\n", user.Login)
 }
