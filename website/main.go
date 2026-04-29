@@ -31,7 +31,7 @@ func main() {
 	if clientId == "" || clientSecret == "" {
 		log.Fatalf("missing github client id/secret")
 	}
-	oauth = github.New(clientId, clientSecret, github.Options{})
+	oauth = github.New(clientId, clientSecret)
 
 	http.HandleFunc("/", contentHandler([]byte(html), "text/html"))
 	http.HandleFunc("/config.json", contentHandler([]byte(config), "application/json"))
@@ -92,9 +92,6 @@ func oauthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Subscription / allow-list checks live in jprq-web now;
-	// this endpoint just hands the token back to the desktop app.
-
 	// Check if this is an app-based authentication
 	appCookie, err := r.Cookie("jprq_app")
 	callbackCookie, _ := r.Cookie("jprq_callback")
@@ -139,4 +136,3 @@ func oauthCallback(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(fmt.Sprintf(tokenHtml, token)))
 }
-
