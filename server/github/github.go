@@ -3,6 +3,7 @@ package github
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -29,25 +30,39 @@ type Authenticator interface {
 }
 
 type github struct {
-	clientId     string
-	clientSecret string
-	defaultScope string
-	userEndpoint string
-	qir2Endpoint string
-	authURL      string
-	redirectUri  string
-	httpClient   *http.Client
+	clientId           string
+	clientSecret       string
+	defaultScope       string
+	userEndpoint       string
+	qir2Endpoint       string
+	authURL            string
+	redirectUri        string
+	httpClient         *http.Client
+	allowAuthenticated bool
 }
 
 func New(clientId, clientSecret string) Authenticator {
+	g := newGithub(clientId, clientSecret, "https://jprq.io/oauth-callback")
+	g.qir2Endpoint = "https://api.42.uz/api/profile/jprq/"
+	g.authURL = "https://web.jprq.io/api/auth/validate"
+	return g
+}
+
+// NewSelfHosted authenticates users directly against GitHub and does not
+// depend on the upstream membership or fallback authentication services.
+func NewSelfHosted(clientId, clientSecret, redirectURI string) Authenticator {
+	g := newGithub(clientId, clientSecret, redirectURI)
+	g.allowAuthenticated = true
+	return g
+}
+
+func newGithub(clientId, clientSecret, redirectURI string) github {
 	return github{
 		clientId:     clientId,
 		clientSecret: clientSecret,
 		defaultScope: "user:email",
 		userEndpoint: "https://api.github.com/user",
-		redirectUri:  "https://jprq.io/oauth-callback",
-		qir2Endpoint: "https://api.42.uz/api/profile/jprq/",
-		authURL:      "https://web.jprq.io/api/auth/validate",
+		redirectUri:  redirectURI,
 		httpClient:   &http.Client{Timeout: 2 * time.Second},
 	}
 }
@@ -98,16 +113,21 @@ func (g github) ObtainToken(code string) (string, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return "", fmt.Errorf("failed to decode github response: %v", err)
 	}
-	return strings.TrimLeft(response.AccessToken, tokenPrefix), nil
+	return strings.TrimPrefix(response.AccessToken, tokenPrefix), nil
 }
 
 func (g github) Authenticate(token string) (User, error) {
 	user, err := g.authenticate(g.userEndpoint, token)
-	if err != nil {
+	if err != nil && g.qir2Endpoint != "" {
 		user, err = g.authenticate(g.qir2Endpoint, token)
-		if err != nil {
-			return user, err
-		}
+	}
+	if err != nil {
+		return user, err
+	}
+
+	if g.allowAuthenticated {
+		user.Allowed = true
+		return user, nil
 	}
 
 	if user.Allowed {
@@ -138,7 +158,7 @@ func (g github) authenticate(endpoint, token string) (User, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return user, fmt.Errorf("invalid token %v", token)
+		return user, errors.New("invalid token")
 	}
 	err = json.NewDecoder(resp.Body).Decode(&user)
 	if err != nil {

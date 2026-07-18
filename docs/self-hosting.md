@@ -1,8 +1,8 @@
 # Self-hosting JPRQ
 
 This fork supports running JPRQ behind an existing reverse proxy without taking
-over ports 80 and 443. It also supports a private static token instead of the
-upstream GitHub OAuth service.
+over ports 80 and 443. Authentication can use either a private static token or
+a self-hosted GitHub OAuth flow without the upstream membership service.
 
 ## Requirements
 
@@ -44,6 +44,30 @@ Generate a token with `openssl rand -hex 32`, put it in
 - public event socket: `0.0.0.0:4321`
 - private HTTP backend: `127.0.0.1:18080`
 - TLS disabled in JPRQ when Nginx terminates TLS
+
+### GitHub OAuth authentication
+
+Create a GitHub OAuth App with this callback URL:
+
+```text
+https://jprq.example.com/oauth-callback
+```
+
+Remove `JPRQ_AUTH_TOKEN` and set `GITHUB_CLIENT_ID`,
+`GITHUB_CLIENT_SECRET`, `GITHUB_REDIRECT_URI`, and `JPRQ_WEBSITE_ADDR` as shown
+in `deploy/jprq.env.example`. Build and install the website service:
+
+```sh
+go build -trimpath -ldflags='-s -w' -o jprq-website ./website
+sudo install -m 0755 jprq-website /usr/local/lib/jprq/jprq-website
+sudo install -m 0644 deploy/jprq-website.service /etc/systemd/system/jprq-website.service
+sudo systemctl enable --now jprq-website
+```
+
+Proxy `/auth` and `/oauth-callback` to the loopback website address. Users then
+visit `https://jprq.example.com/auth`, authorize with GitHub, and copy the
+generated `jprq auth ...` command. OAuth secrets must remain only in the mode
+0600 environment file and must never be committed.
 
 Install and adapt `deploy/nginx-http.conf.example`, run `nginx -t`, and only
 then reload Nginx. Finally:

@@ -24,6 +24,8 @@ func main() {
 	var oauth github.Authenticator
 	if conf.AuthToken != "" {
 		oauth = github.NewStatic(conf.AuthToken)
+	} else if conf.GithubRedirectURI != "" {
+		oauth = github.NewSelfHosted(conf.GithubClientID, conf.GithubClientSecret, conf.GithubRedirectURI)
 	} else {
 		oauth = github.New(conf.GithubClientID, conf.GithubClientSecret)
 	}

@@ -72,3 +72,22 @@ func TestGithub_Authenticate(t *testing.T) {
 		})
 	}
 }
+
+func TestSelfHostedAllowsAuthenticatedGithubUser(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"login":"octocat"}`))
+	}))
+	defer server.Close()
+
+	g := newGithub("client", "secret", "https://example.com/oauth-callback")
+	g.userEndpoint = server.URL
+	g.allowAuthenticated = true
+	user, err := g.Authenticate("token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.Login != "octocat" || !user.Allowed {
+		t.Fatalf("unexpected user: %+v", user)
+	}
+}

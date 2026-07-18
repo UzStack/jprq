@@ -20,6 +20,7 @@ type Config struct {
 	TLSKeyFile          string
 	GithubClientID      string
 	GithubClientSecret  string
+	GithubRedirectURI   string
 	AllowedUsersFile    string
 	AuthToken           string
 	TLSDisabled         bool
@@ -61,6 +62,7 @@ func (c *Config) Load() error {
 	c.TLSCertFile = os.Getenv("JPRQ_TLS_CERT")
 	c.GithubClientID = os.Getenv("GITHUB_CLIENT_ID")
 	c.GithubClientSecret = os.Getenv("GITHUB_CLIENT_SECRET")
+	c.GithubRedirectURI = os.Getenv("GITHUB_REDIRECT_URI")
 	c.AuthToken = os.Getenv("JPRQ_AUTH_TOKEN")
 	c.TLSDisabled = os.Getenv("JPRQ_TLS_DISABLED") == "1"
 	c.AllowedUsersFile = "/etc/jprq/allowed-users.csv"

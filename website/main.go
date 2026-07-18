@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
 	_ "embed"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
@@ -28,10 +31,11 @@ var tokenHtml string
 func main() {
 	clientId := os.Getenv("GITHUB_CLIENT_ID")
 	clientSecret := os.Getenv("GITHUB_CLIENT_SECRET")
-	if clientId == "" || clientSecret == "" {
-		log.Fatalf("missing github client id/secret")
+	redirectURI := os.Getenv("GITHUB_REDIRECT_URI")
+	if clientId == "" || clientSecret == "" || redirectURI == "" {
+		log.Fatalf("missing github client id/secret or redirect URI")
 	}
-	oauth = github.New(clientId, clientSecret)
+	oauth = github.NewSelfHosted(clientId, clientSecret, redirectURI)
 
 	http.HandleFunc("/", contentHandler([]byte(html), "text/html"))
 	http.HandleFunc("/config.json", contentHandler([]byte(config), "application/json"))
@@ -39,8 +43,12 @@ func main() {
 	http.HandleFunc("/auth", authHandler)
 	http.HandleFunc("/oauth-callback", oauthCallback)
 
-	log.Print("Listening on 127.0.0.1:3300")
-	log.Fatal(http.ListenAndServe(":3300", nil))
+	addr := os.Getenv("JPRQ_WEBSITE_ADDR")
+	if addr == "" {
+		addr = "127.0.0.1:3300"
+	}
+	log.Printf("Listening on %s", addr)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
 func contentHandler(content []byte, contentType string) func(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +62,25 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	app := r.URL.Query().Get("app")
 	callback := r.URL.Query().Get("callback")
 	oauthURL := oauth.OAuthUrl()
+	stateBytes := make([]byte, 32)
+	if _, err := rand.Read(stateBytes); err != nil {
+		http.Error(w, "failed to initialize authentication", http.StatusInternalServerError)
+		return
+	}
+	state := base64.RawURLEncoding.EncodeToString(stateBytes)
+	parsedOAuthURL, err := url.Parse(oauthURL)
+	if err != nil {
+		http.Error(w, "invalid authentication configuration", http.StatusInternalServerError)
+		return
+	}
+	query := parsedOAuthURL.Query()
+	query.Set("state", state)
+	parsedOAuthURL.RawQuery = query.Encode()
+	oauthURL = parsedOAuthURL.String()
+	http.SetCookie(w, &http.Cookie{
+		Name: "jprq_oauth_state", Value: state, Path: "/", MaxAge: 300,
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+	})
 
 	if app != "" {
 		http.SetCookie(w, &http.Cookie{
@@ -85,6 +112,15 @@ func oauthCallback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/auth", http.StatusTemporaryRedirect)
 		return
 	}
+	stateCookie, err := r.Cookie("jprq_oauth_state")
+	if err != nil || subtle.ConstantTimeCompare([]byte(stateCookie.Value), []byte(r.FormValue("state"))) != 1 {
+		http.Error(w, "invalid OAuth state", http.StatusBadRequest)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: "jprq_oauth_state", Value: "", Path: "/", MaxAge: -1,
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+	})
 	token, err := oauth.ObtainToken(r.FormValue("code"))
 	if err != nil || token == "" {
 		fmt.Printf("error obtaining token: %s\n", err)
@@ -134,5 +170,9 @@ func oauthCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Default: show token in web page
 	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Write([]byte(fmt.Sprintf(tokenHtml, token)))
 }
