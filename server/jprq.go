@@ -24,6 +24,7 @@ type Jprq struct {
 	eventServer     server.TCPServer
 	publicServer    server.TCPServer
 	publicServerTLS server.TCPServer
+	tlsEnabled      bool
 	allowedUsers    map[string]string
 	allowedLastMod  time.Time
 	authenticator   github.Authenticator
@@ -42,20 +43,25 @@ func (j *Jprq) Init(conf config.Config, oauth github.Authenticator) error {
 	j.httpTunnels = make(map[string]*tunnel.HTTPTunnel)
 	j.userTunnels = make(map[string]map[string]tunnel.Tunnel)
 
-	if err := j.eventServer.Init(conf.EventServerPort, "jprq_event_server"); err != nil {
+	if err := j.eventServer.InitHost(conf.EventServerHost, conf.EventServerPort, "jprq_event_server"); err != nil {
 		return err
 	}
-	if err := j.publicServer.Init(conf.PublicServerPort, "jprq_public_server"); err != nil {
+	if err := j.publicServer.InitHost(conf.PublicServerHost, conf.PublicServerPort, "jprq_public_server"); err != nil {
 		return err
 	}
-	err := j.publicServerTLS.InitTLS(conf.PublicServerTLSPort, "jprq_public_server_tls", conf.TLSCertFile, conf.TLSKeyFile)
-	return err
+	j.tlsEnabled = !conf.TLSDisabled
+	if j.tlsEnabled {
+		return j.publicServerTLS.InitTLSHost(conf.PublicServerTLSHost, conf.PublicServerTLSPort, "jprq_public_server_tls", conf.TLSCertFile, conf.TLSKeyFile)
+	}
+	return nil
 }
 
 func (j *Jprq) Start() {
 	go j.eventServer.Start(j.serveEventConn)
 	go j.publicServer.Start(j.servePublicConn)
-	go j.publicServerTLS.Start(j.servePublicConn)
+	if j.tlsEnabled {
+		go j.publicServerTLS.Start(j.servePublicConn)
+	}
 
 	go func() { // periodically load allowed users
 		j.loadAllowedUsers()
@@ -72,8 +78,10 @@ func (j *Jprq) Stop() error {
 	if err := j.publicServer.Stop(); err != nil {
 		return err
 	}
-	err := j.publicServerTLS.Stop()
-	return err
+	if j.tlsEnabled {
+		return j.publicServerTLS.Stop()
+	}
+	return nil
 }
 
 func (j *Jprq) servePublicConn(conn net.Conn) error {
@@ -197,6 +205,9 @@ func (j *Jprq) serveEventConn(conn net.Conn) error {
 func (j *Jprq) loadAllowedUsers() {
 	stat, err := os.Stat(j.config.AllowedUsersFile)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
 		log.Printf("failed to stat blocked users file: %s", err)
 		return
 	}

@@ -10,6 +10,15 @@
 
 ---
 
+## Self-hosting
+
+This fork can run behind an existing Nginx instance on non-conflicting backend
+ports and can use a private static authentication token. See the complete
+[self-hosting guide](docs/self-hosting.md) and the hardened deployment examples
+in [`deploy/`](deploy/).
+
+---
+
 ## How to install
 
 <details>

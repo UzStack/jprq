@@ -12,6 +12,8 @@ import (
 	"github.com/azimjohn/jprq/server/tunnel"
 )
 
+var publicScheme = "https"
+
 type jprqClient struct {
 	config       Config
 	protocol     string
@@ -56,7 +58,7 @@ func (j *jprqClient) Start(port int, debug bool) {
 	j.publicServer = fmt.Sprintf("%s:%d", t.Data.Hostname, t.Data.PublicServer)
 
 	if j.protocol == "http" {
-		j.publicServer = fmt.Sprintf("https://%s", t.Data.Hostname)
+		j.publicServer = fmt.Sprintf("%s://%s", publicScheme, t.Data.Hostname)
 	}
 
 	fmt.Printf("Status: \t Online \n")

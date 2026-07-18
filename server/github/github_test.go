@@ -46,6 +46,13 @@ func TestGithub_Authenticate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tt.statusCode == 0 {
+					conn, _, err := w.(http.Hijacker).Hijack()
+					if err == nil {
+						_ = conn.Close()
+					}
+					return
+				}
 				w.WriteHeader(tt.statusCode)
 				_, _ = w.Write([]byte(tt.response))
 			}))

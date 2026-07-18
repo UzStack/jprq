@@ -13,7 +13,11 @@ type TCPServer struct {
 }
 
 func (s *TCPServer) Init(port uint16, title string) error {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	return s.InitHost("", port, title)
+}
+
+func (s *TCPServer) InitHost(host string, port uint16, title string) error {
+	ln, err := net.Listen("tcp", net.JoinHostPort(host, fmt.Sprint(port)))
 	if err != nil {
 		return err
 	}
@@ -23,12 +27,16 @@ func (s *TCPServer) Init(port uint16, title string) error {
 }
 
 func (s *TCPServer) InitTLS(port uint16, title, certFile, keyFile string) error {
+	return s.InitTLSHost("", port, title, certFile, keyFile)
+}
+
+func (s *TCPServer) InitTLSHost(host string, port uint16, title, certFile, keyFile string) error {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return err
 	}
 	config := tls.Config{Certificates: []tls.Certificate{cert}}
-	ln, err := tls.Listen("tcp", fmt.Sprintf(":%d", port), &config)
+	ln, err := tls.Listen("tcp", net.JoinHostPort(host, fmt.Sprint(port)), &config)
 	if err != nil {
 		return err
 	}
