@@ -57,7 +57,7 @@ sudo systemctl status jprq
 The client reads this file from `main.remoteConfig`:
 
 ```json
-{"remote":{"domain":"jprq.example.com","events":"jprq.example.com:4321"}}
+{"domain":"jprq.example.com","events":"jprq.example.com:4321"}
 ```
 
 Install the custom client, authenticate once, and open a tunnel:
